@@ -2,16 +2,16 @@ import pickle
 import matplotlib.pyplot as plt
 import os
 from torch.utils.data import DataLoader, random_split
-from custom_dataset import CustomImageDataset
 import torch
 from torch import nn, optim
 import statistics
 
-from shape_mem_encoder import MemoryEncoder
+from reservoir import Reservoir
+from custom_dataset import CustomImageDataset
 
 """
 
-Train functional NN to perform memory task
+Reservoir computing tests
 
 """
 
@@ -19,19 +19,17 @@ Train functional NN to perform memory task
 INPUT_SHAPE = (3, 28, 28)
 INPUT_SIZE = INPUT_SHAPE[0] * INPUT_SHAPE[1] * INPUT_SHAPE[2]
 
-MEMORY_SIZE = 128
+# Note: got to > 80% in epoch 3 with 5000, discriminating 2 images of 3 x 28 x 28
+RESERVOIR_OUTPUT_LENGTH = 3_000
 
-MEMORY_LENGTH = 2
-
-device = 'cuda'
-
-class FunctionalNN(nn.Module):
+class RNNOut(nn.Module):
     def __init__(self):
         super().__init__()
+        natural_size = RESERVOIR_OUTPUT_LENGTH
         self.linear_relu_stack = torch.nn.Sequential(
-            torch.nn.Linear(INPUT_SIZE + MEMORY_SIZE * MEMORY_LENGTH,  MEMORY_SIZE * 2),
+            torch.nn.Linear(natural_size,  natural_size // 10),
             torch.nn.ReLU(),
-            torch.nn.Linear(MEMORY_SIZE * 2, 16),
+            torch.nn.Linear(natural_size // 10, 16),
             torch.nn.ReLU(),
             torch.nn.Linear(16, 2),
             torch.nn.Softmax(dim=1)
@@ -40,49 +38,27 @@ class FunctionalNN(nn.Module):
         prediction = self.linear_relu_stack(x)
         return prediction
 
-class MemoryBank():
-    def __init__(self) -> None:
-        self.rows = MEMORY_LENGTH
-        self.cols = MEMORY_SIZE
-        self.bank = torch.zeros(self.rows, self.cols, dtype=torch.float).to(device)
-
-    # Moves each row forward one position, placing new memory at 0
-    # x should be a tensor
-    @torch.no_grad()
-    def add(self, x):
-        new_mem = [x] + [self.bank[i] for i in range(self.rows-1)]
-        self.bank = torch.vstack(new_mem)
+device = "cpu"
 
 if __name__ == '__main__':
-    
-    recognizer = FunctionalNN().to(device)
 
-    encoder_file = 'encoder-.011.pkl'
-    mem_encoder = pickle.load(open(encoder_file, 'rb'))
-
-    learning_rates = {
-        0: 1,
-        30: 50,
-        80: 35,
-        150: 25,
-        250: 15,
-        350: 5,
-        450: 3,
-        500: 1,
-        600: .5,
-        700: .2,
-        800: .1,
-        900: .05,
-        1000: .01,
-        1100: .005,
-        1200: .0005
-    }
+    recognizer = RNNOut().to(device)
+    reservoir = Reservoir(Nu=INPUT_SIZE, Nx=RESERVOIR_OUTPUT_LENGTH)
 
     loss_fn = nn.MSELoss()
-    optimizer = torch.optim.SGD(recognizer.parameters(), lr=100)
+    optimizer = torch.optim.SGD(recognizer.parameters(), lr=.1)
 
-    num_epochs = 10
+    learning_rates = {
+        0: .1,
+        10: .05,
+        20: .01,
+        30: .005,
+        40: .001
+    }
 
+    num_epochs = 50
+
+    # NOTE: On macbook, I changed line 160 in torch/storage.py to return torch.load(io.BytesIO(b), map_location="cpu") - used to not have "map location" bit
     dataset = CustomImageDataset('generated')
     train_size = int(.8 * len(dataset))  # .8 for 80%
     val_size = len(dataset) - train_size
@@ -108,8 +84,7 @@ if __name__ == '__main__':
             X = X.to(device)
             y = y.to(device).float()
 
-            
-            # Select images that are memories
+             # Select images that are memories
             memory1 = X[:, 0, :, :, :]
             memory2 = X[:, 1, :, :, :]
 
@@ -117,17 +92,30 @@ if __name__ == '__main__':
             memory1 = torch.flatten(memory1, start_dim=1, end_dim=3)
             memory2 = torch.flatten(memory2, start_dim=1, end_dim=3)
 
-            # Run memories through auto encoder
-            memory1 = mem_encoder.encode(memory1)
-            memory2 = mem_encoder.encode(memory2)
+            bsize = X.shape[0]
+            reservoir_outputs = torch.zeros((bsize, RESERVOIR_OUTPUT_LENGTH))
 
-            # Flatten input
+            # NOTE: This code puts sensory input into reservoir
             sensory_input = X[:, 2, :, :]
             flattened = torch.flatten(sensory_input, start_dim=1, end_dim=3)
-            # Concatenate memories and input
-            total_input = torch.cat((memory1, memory2, flattened), 1).float()
 
-            pred = recognizer(total_input)
+            # TODO: Make reservoir act on batch at a time
+            for i in range(len(X)):
+                reservoir.evolve(memory1[i])
+                reservoir.evolve(memory2[i])
+                reservoir.evolve(flattened[i])  # to remove
+                reservoir_outputs[i] = reservoir.get_states()
+                reservoir.clear()
+    
+            """
+            # Concatenate reservoir and input
+            sensory_input = X[:, 2, :, :]
+            flattened = torch.flatten(sensory_input, start_dim=1, end_dim=3)
+            total_input = torch.cat((reservoir_outputs, flattened), 1).float()
+            """
+
+            # pred = recognizer(total_input)
+            pred = recognizer(reservoir_outputs)
 
             loss = loss_fn(pred, y)
             optimizer.zero_grad()
@@ -139,10 +127,9 @@ if __name__ == '__main__':
             correctness_tensor = pred.argmax(dim=-1) == y.argmax(dim=-1)
             batch_acc = sum(correctness_tensor)/len(correctness_tensor)
             accuracies.append(batch_acc.item())
-
+            print(f"batch {batch} acc: {batch_acc.item()}")
+            
         current_loss = statistics.mean(train_losses)
         total_acc = statistics.mean(accuracies)
         print(f"Train loss: {current_loss}")
         print(f"Train accuracy: {total_acc}")
-
-    pickle.dump(recognizer, open("functionalnn.pkl", 'wb'))
