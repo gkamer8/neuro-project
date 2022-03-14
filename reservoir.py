@@ -2,17 +2,19 @@ import torch
 
 class Reservoir():
     # Note: std originally .05
-    def __init__(self, Nu=2_352, Nx=5_000, density=.2, activation=torch.tanh, std=.5):
+    def __init__(self, Nu=2_352, Nx=5_000, density=.2, activation=torch.tanh, std=.1, batch_size=128):
 
         # Neurons
-        self.x = torch.zeros((Nx,))
+        self.x = torch.zeros((Nx,batch_size))
         # Activation function
         self.activation = activation
         # Number of inputs
         self.Nu = Nu
         # Number of internal neurons
         self.Nx = Nx
-        # Weights
+        # Batch size
+        self.batch_size = batch_size
+        # Weights - same for all the batches
         self.W = self.init_w(density, std)  # Note: std is standard deviation of weight value
         self.Win = self.init_win()
 
@@ -37,16 +39,19 @@ class Reservoir():
         win = torch.vstack((diag_square, filler))
         return win
 
-    def get_states(self):
+    def get_states(self, transpose=True):
         return self.x
 
     # Move forward one timestep with input tensor u
     def evolve(self, u):
         # Implementing:
-        # x(n) = f(Win u(n) + W x(n − 1)) 
-        winu= torch.matmul(self.Win, u)
+        # x(n) = f(Win u(n) + W x(n − 1))
+
+        # ASSUMING u IS SHAPE (batch size, Nu)
+        new_u = torch.transpose(u, 0, 1)
+        winu = torch.matmul(self.Win, new_u)
         wx = torch.matmul(self.W, self.x)
         self.x = self.activation(winu + wx)
 
     def clear(self):
-        self.x = torch.zeros((self.Nx,))
+        self.x = torch.zeros((self.Nx,self.batch_size))
