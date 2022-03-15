@@ -2,7 +2,6 @@ import enum
 import pickle
 import matplotlib.pyplot as plt
 import os
-from sympy import I
 from torch.utils.data import DataLoader, random_split
 from custom_dataset import CustomImageDataset
 import torch

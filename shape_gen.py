@@ -1,27 +1,19 @@
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
-import cupy as np
 import random
 import math
 from scipy import ndimage, misc
-from sympy import Circle, zoo
 import pickle
 import os
 import torch
 import torchvision.transforms as T
 from torchvision.transforms.functional import rotate
-
-"""
-
-Image: [[[R, G, B], [R, G, B], ...], [[R, G, B], ...]] 
-img[ROW][COLUMN][COLOR]
-
-"""
+import numpy as np
 
 IMAGE_WIDTH = 28
 IMAGE_HEIGHT = 28
 
-device = "cuda"
+device = "cpu"
 
 def get_blank_image():
     return torch.zeros((3, IMAGE_HEIGHT, IMAGE_WIDTH)).to(device)
@@ -135,15 +127,6 @@ class Oval():
             y = self.y
 
         blank = get_blank_image()
-        """for ycoord in range(IMAGE_HEIGHT):
-            for xcoord in range(IMAGE_WIDTH):
-                rhs = self.b**2 * (1 - (xcoord-x)**2 / self.a **2)
-                if rhs >= 0:
-                    rhs = math.sqrt(rhs)
-                    if ycoord - y <= rhs and ycoord - y >= -rhs:
-                        blank[0][ycoord][xcoord] = self.color[0]
-                        blank[1][ycoord][xcoord] = self.color[1]
-                        blank[2][ycoord][xcoord] = self.color[2]"""
 
         # IDEA: use fast matrix operations to calculate equations for each coordinate
         # Then use condition matrix in a .where
@@ -197,7 +180,7 @@ def img_perturb(img):
     return img
 
 
-def write_examples(N=10_000, directory='generated', base_filename='examples_', speak_every=500):
+def left_right_match(N=10_000, directory='generated', base_filename='examples_', speak_every=500):
 
     """
     # Number of examples to write out per file
@@ -220,6 +203,7 @@ def write_examples(N=10_000, directory='generated', base_filename='examples_', s
     # Gives map of index to file path
     header_obj = {
         'paths': {},  # index -> path
+        'desc': '3 pictures are shown. Third is either a repeat of the first or second. Player determines which.',
         'len': 0  # Size of dataset
     }
 
@@ -255,7 +239,65 @@ def write_examples(N=10_000, directory='generated', base_filename='examples_', s
     fname = os.path.join(directory, fname)
     with open(fname, "wb") as fhand:
         pickle.dump(header_obj, fhand)
+
+
+def long_match_or_no(N=10_000, n=5, directory='long_match_or_no', base_filename='examples_', speak_every=500):
+
+    """
+    # Number of examples to write out per file
+    k = 250
+
+    # Number of files to write out
+    N = 100
+
+    # Format:
+    # [{'img1': np.array, 'img2':np.array, 'img3':np.array, 'y': [int first, int second]}]
+
+    directory = "generated"
+    base_filename = "examples_"
+
+    speak_every = 10"""
+
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+
+    # Gives map of index to file path
+    header_obj = {
+        'paths': {},  # index -> path
+        'num_pics': n,
+        'desc': 'Player is shown n images. Last one is either repeat or not. Player determines which.',
+        'len': 0  # Size of dataset
+    }
+
+    for i in range(N):
+        images = []
+        for _ in range(n-1):
+            images.append(make_image())
+        
+        repeated = random.randrange(n-1)
+        is_repeat = random.random() < .5
+        last_image = img_perturb(images[repeated]) if is_repeat else make_image()
+        images.append(last_image)
+
+        # 1 0 is repeat; 0 1 no repeat
+        obj = {'images': images, 'y': torch.tensor([int(is_repeat), int(not is_repeat)])}
+
+        fname = base_filename + str(i) + ".pkl"
+        fname = os.path.join(directory, fname)
+        with open(fname, "wb") as fhand:
+            pickle.dump(obj, fhand)
+
+        header_obj['paths'][i] = fname
+        header_obj['len'] += 1
+    
+        if i % speak_every == 0:
+            print(f"Written file {i}/{N}")
+
+    fname = "header.pkl"
+    fname = os.path.join(directory, fname)
+    with open(fname, "wb") as fhand:
+        pickle.dump(header_obj, fhand)
     
 
 if __name__ == '__main__':
-    write_examples()
+    long_match_or_no(n=5)

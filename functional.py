@@ -2,12 +2,13 @@ import pickle
 import matplotlib.pyplot as plt
 import os
 from torch.utils.data import DataLoader, random_split
-from custom_dataset import CustomImageDataset
+from custom_dataset import CustomImageDataset, LongMatchOrNoGame
 import torch
 from torch import nn, optim
 import statistics
 
 from shape_mem_encoder import MemoryEncoder
+from shape_gen import long_match_or_no, left_right_match
 
 """
 
@@ -21,9 +22,9 @@ INPUT_SIZE = INPUT_SHAPE[0] * INPUT_SHAPE[1] * INPUT_SHAPE[2]
 
 MEMORY_SIZE = 128
 
-MEMORY_LENGTH = 2
+MEMORY_LENGTH = 4
 
-device = 'cuda'
+device = 'cpu'
 
 class FunctionalNN(nn.Module):
     def __init__(self):
@@ -62,28 +63,32 @@ if __name__ == '__main__':
 
     learning_rates = {
         0: 1,
-        30: 50,
-        80: 35,
-        150: 25,
-        250: 15,
-        350: 5,
-        450: 3,
-        500: 1,
-        600: .5,
-        700: .2,
-        800: .1,
-        900: .05,
-        1000: .01,
-        1100: .005,
-        1200: .0005
+        5: .5,
+        10: .1,
+        15: .05,
+        20: .01
     }
 
     loss_fn = nn.MSELoss()
-    optimizer = torch.optim.SGD(recognizer.parameters(), lr=100)
+    optimizer = torch.optim.SGD(recognizer.parameters(), lr=1)
 
-    num_epochs = 10
+    num_epochs = 25
 
-    dataset = CustomImageDataset('generated')
+    change_data = True  # create new data after every epoch
+
+    game_names = ['left or right', 'seen or not']
+    # Note: when adding a game, make sure to change the data creation at the end of the epoch
+    game = game_names[1]  # 'seen or not'
+
+    memories_to_load = 0
+    if game == 'seen or not':
+        dataset = LongMatchOrNoGame('long_match_or_no')
+        memories_to_load = dataset.num_pics - 1
+    elif game == 'left or right':
+        dataset = CustomImageDataset('generated')
+        memories_to_load = 2
+    print(f"Playing {game} with {memories_to_load} memories.")
+
     train_size = int(.8 * len(dataset))  # .8 for 80%
     val_size = len(dataset) - train_size
     train, val = random_split(dataset, [train_size, val_size])
@@ -108,24 +113,19 @@ if __name__ == '__main__':
             X = X.to(device)
             y = y.to(device).float()
 
-            
             # Select images that are memories
-            memory1 = X[:, 0, :, :, :]
-            memory2 = X[:, 1, :, :, :]
-
-            # Flatten memories
-            memory1 = torch.flatten(memory1, start_dim=1, end_dim=3)
-            memory2 = torch.flatten(memory2, start_dim=1, end_dim=3)
-
-            # Run memories through auto encoder
-            memory1 = mem_encoder.encode(memory1)
-            memory2 = mem_encoder.encode(memory2)
+            memories = []
+            for i in range(memories_to_load):
+                memories.append(X[:, i, :, :, :])
+                memories[i] = torch.flatten(memories[i], start_dim=1, end_dim=3)
+                memories[i] = mem_encoder.encode(memories[i])
 
             # Flatten input
-            sensory_input = X[:, 2, :, :]
+            # Note: memories_to_load would equal the index of the first non memory
+            sensory_input = X[:, memories_to_load, :, :]
             flattened = torch.flatten(sensory_input, start_dim=1, end_dim=3)
             # Concatenate memories and input
-            total_input = torch.cat((memory1, memory2, flattened), 1).float()
+            total_input = torch.cat(memories + [flattened], 1).float()
 
             pred = recognizer(total_input)
 
@@ -140,9 +140,54 @@ if __name__ == '__main__':
             batch_acc = sum(correctness_tensor)/len(correctness_tensor)
             accuracies.append(batch_acc.item())
 
-        current_loss = statistics.mean(train_losses)
-        total_acc = statistics.mean(accuracies)
-        print(f"Train loss: {current_loss}")
-        print(f"Train accuracy: {total_acc}")
+        val_losses = []
+        val_accuracies = []
+
+        # Validate
+        recognizer.eval()
+        for batch, (X, y) in enumerate(train_loader):
+            X = X.to(device)
+            y = y.to(device).float()
+
+            # Select images that are memories
+            memories = []
+            for i in range(memories_to_load):
+                memories.append(X[:, i, :, :, :])
+                memories[i] = torch.flatten(memories[i], start_dim=1, end_dim=3)
+                memories[i] = mem_encoder.encode(memories[i])
+
+            # Flatten input
+            # Note: memories_to_load would equal the index of the first non memory
+            sensory_input = X[:, memories_to_load, :, :]
+            flattened = torch.flatten(sensory_input, start_dim=1, end_dim=3)
+            # Concatenate memories and input
+            total_input = torch.cat(memories + [flattened], 1).float()
+
+            pred = recognizer(total_input)
+
+            loss = loss_fn(pred, y)
+            val_losses.append(loss.item())
+            
+            correctness_tensor = pred.argmax(dim=-1) == y.argmax(dim=-1)
+            batch_acc = sum(correctness_tensor)/len(correctness_tensor)
+            val_accuracies.append(batch_acc.item())
+
+        current_val_loss = statistics.mean(val_losses)
+        val_total_acc = statistics.mean(val_accuracies)
+        print(f"Val loss: {current_val_loss}")
+        print(f"Val accuracy: {val_total_acc}")
+
+        if change_data:
+            
+            if game == 'seen or not':
+                long_match_or_no(n=dataset.num_pics)
+                dataset = LongMatchOrNoGame('long_match_or_no')
+            elif game == 'left or right':
+                left_right_match()
+                dataset = LongMatchOrNoGame('generated')
+
+            train_size = int(.8 * len(dataset))  # .8 for 80%
+            val_size = len(dataset) - train_size
+            train, val = random_split(dataset, [train_size, val_size])
 
     pickle.dump(recognizer, open("functionalnn.pkl", 'wb'))

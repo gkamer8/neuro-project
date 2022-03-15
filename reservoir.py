@@ -2,7 +2,7 @@ import torch
 
 class Reservoir():
     # Note: std originally .05
-    def __init__(self, Nu=2_352, Nx=5_000, density=.2, activation=torch.tanh, std=.1, batch_size=128):
+    def __init__(self, Nu=2_352, Nx=5_000, density=0.001, activation=torch.tanh, std=.5, batch_size=128):
 
         # Neurons
         self.x = torch.zeros((Nx,batch_size))
@@ -15,17 +15,30 @@ class Reservoir():
         # Batch size
         self.batch_size = batch_size
         # Weights - same for all the batches
-        self.W = self.init_w(density, std)  # Note: std is standard deviation of weight value
+        self.W = self.init_w(density, std=std)  # Note: std is standard deviation of weight value
         self.Win = self.init_win()
 
-    def init_w(self, density, std=.5):
+    """
+    method: type of weight initialization
+        'uniform' -> uniformly selected b/w -1 and 1
+        'normal' -> normally distributed w mean 0 and std = std (.5 by default)
+        'binary' -> weights are either 1 or -1
+    """
+    def init_w(self, density, std=.5, method="uniform"):
+
         # Get random connections
         probs = torch.tensor([density]).repeat((self.Nx, self.Nx))
         connections = torch.bernoulli(probs)  # Tensor of 1s and 0s
 
-        # Get random weights
-        std_matrix = torch.tensor([std]).repeat((self.Nx, self.Nx))
-        weights = torch.normal(mean=0, std=std_matrix)
+        if method == 'normal':
+            std_matrix = torch.tensor([std]).repeat((self.Nx, self.Nx))
+            weights = torch.normal(mean=0, std=std_matrix)
+        elif method == 'uniform':
+            weights = torch.rand((self.Nx, self.Nx)) * 2 - 1  # From -1 to 1
+        elif method == 'binary':
+            halves = torch.ones((self.Nx, self.Nx)) * .5
+            weights = torch.bernoulli(halves) * 2 - 1  # Everything is either -1 or 1 with .5 probability
+
         weights = weights * connections  # Note: element wise multiplication
         return weights
 

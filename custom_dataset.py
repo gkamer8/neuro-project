@@ -57,3 +57,39 @@ class CustomImageDataset(Dataset):
         y = obj['y']
 
         return x, y
+
+
+class LongMatchOrNoGame(Dataset):
+    def __init__(self, examples_dir):
+
+        self.examples_dir = examples_dir
+
+        header_path = os.path.join(examples_dir, 'header.pkl')
+        header_obj = pickle.load(open(header_path, "rb"))
+        self.len = header_obj['len']
+        self.num_pics = header_obj['num_pics']
+
+        self.paths = header_obj['paths']
+
+    def __len__(self):
+        return self.len
+
+    def __getitem__(self, idx):
+
+        pickle_path = self.paths[idx]
+
+        obj = pickle.load(open(pickle_path, "rb"))
+
+        images = obj['images']
+        n = len(images)
+
+        # X: tensor with a dimension added for each image
+        img_shape = list(images[0].shape)  # assuming at least one image
+
+        x = torch.empty([n] + img_shape)
+        for i in range(n):
+            x[i] = images[i]
+
+        y = obj['y']
+
+        return x, y
