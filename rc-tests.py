@@ -40,11 +40,7 @@ class RNNOut(nn.Module):
         super().__init__()
         natural_size = RESERVOIR_OUTPUT_LENGTH + INPUT_SIZE
         self.linear_relu_stack = torch.nn.Sequential(
-            torch.nn.Linear(natural_size,  natural_size // 10),
-            torch.nn.ReLU(),
-            torch.nn.Linear(natural_size // 10,  16),
-            torch.nn.ReLU(),
-            torch.nn.Linear(16, 2),
+            torch.nn.Linear(natural_size,  2),
             torch.nn.Softmax(dim=1)
         )
     def forward(self, x):
@@ -61,6 +57,12 @@ if __name__ == '__main__':
     optimizer = torch.optim.SGD(recognizer.parameters(), lr=.1)
 
     reservoir = Reservoir(density=.0002, Nu=INPUT_SIZE, Nx=RESERVOIR_OUTPUT_LENGTH, batch_size=BATCH_SIZE)
+
+    print("Eigenvalues: ")
+    eigenvalues = torch.linalg.eigvals(reservoir.W)
+    print(eigenvalues)
+    max_eigenvalue = max(eigenvalues.abs())
+    print(f"Max: {max_eigenvalue}")
 
     learning_rates = {
         0: 1,

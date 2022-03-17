@@ -184,7 +184,7 @@ if __name__ == '__main__':
                 dataset = LongMatchOrNoGame('long_match_or_no')
             elif game == 'left or right':
                 left_right_match()
-                dataset = LongMatchOrNoGame('generated')
+                dataset = CustomImageDataset('generated')
 
             train_size = int(.8 * len(dataset))  # .8 for 80%
             val_size = len(dataset) - train_size

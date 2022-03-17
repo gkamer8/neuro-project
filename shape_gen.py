@@ -300,4 +300,4 @@ def long_match_or_no(N=10_000, n=5, directory='long_match_or_no', base_filename=
     
 
 if __name__ == '__main__':
-    long_match_or_no(n=5)
+    left_right_match()
