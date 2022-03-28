@@ -57,27 +57,20 @@ if __name__ == '__main__':
     model = MemoryEncoder().to(device)
 
     learning_rates = {
-        0: 1,
-        30: 50,
-        80: 35,
-        150: 25,
-        250: 15,
-        350: 5,
-        450: 3,
-        500: 1,
-        600: .5,
-        700: .2,
-        800: .1,
-        900: .05,
-        1000: .01,
-        1100: .005,
-        1200: .0005
+        0: 100,
+        15: 50,
+        30: 10,
+        45: 1,
+        85: .5,
+        125: .1,
+        225: .05,
+        325: .01,
     }
 
     loss_fn = nn.MSELoss()
     optimizer = torch.optim.SGD(model.parameters(), lr=100)    
 
-    num_epochs = 1500
+    num_epochs = 500
 
     dataset = CustomImageDataset('generated')
     train_size = int(.8 * len(dataset))  # .8 for 80%
@@ -89,10 +82,12 @@ if __name__ == '__main__':
     val_loader = DataLoader(val, batch_size=128, shuffle=False)
 
     # EXAMINE EXISTING ENCODER
+    to_examine = 'encoder.pkl'
     examine = True
+    examine_only = True
 
     if examine:
-        encoder = pickle.load(open('encoder.pkl', 'rb'))
+        encoder = pickle.load(open(to_examine, 'rb'))
         to_view = 3
         for batch, (X, y) in enumerate(val_loader):
             # Note: we're ignoring y for the autoencoder
@@ -112,6 +107,12 @@ if __name__ == '__main__':
                 plt.imshow(flattened[i].cpu().reshape(INPUT_SHAPE).permute(1, 2, 0).detach().numpy())
                 plt.show()
             break
+    
+    if examine_only:
+        exit(0)
+
+    epoch_val_losses = []
+    epoch_train_losses = []
 
     for epoch in range(num_epochs):
 
@@ -120,6 +121,7 @@ if __name__ == '__main__':
             optimizer = torch.optim.SGD(model.parameters(), lr=learning_rates[epoch]) 
 
         train_losses = []
+        val_losses = []
 
         print(f"Epoch #{epoch+1}")
 
@@ -151,8 +153,32 @@ if __name__ == '__main__':
             optimizer.step()
 
             train_losses.append(loss.item())
+        
+        model.eval()
+        for batch, (X, y) in enumerate(val_loader):
+            # Note: we're ignoring y for the autoencoder
+            X = X.to(device)
+
+            # Flattening takes the three images normally used for memory task
+            # And makes them three separate data poitns
+            # So 64 examples becomes 64*3 = 192
+            flattened = torch.flatten(X, start_dim=0, end_dim=1)
+
+            flattened = flattened.view(-1, TOTAL_INPUTS).to(device)
+            pred = model(flattened)
+
+            loss = loss_fn(pred, flattened)
+
+            val_losses.append(loss.item())
 
         current_loss = statistics.mean(train_losses)
+        current_val_loss = statistics.mean(val_losses)
+        epoch_val_losses.append(current_val_loss)
+        epoch_train_losses.append(current_loss)
         print(f"Train loss: {current_loss}")
+        print(f"Val loss: {current_val_loss}")
+
+    train_info = {'train_losses': epoch_train_losses, 'val_losses': epoch_val_losses, 'lrs': learning_rates}
 
     pickle.dump(model, open("encoder.pkl", 'wb'))
+    pickle.dump(train_info, open("encoder_train_info.pkl", 'wb'))

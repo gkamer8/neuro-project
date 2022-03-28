@@ -63,21 +63,7 @@ if __name__ == '__main__':
     mem_encoder = pickle.load(open(encoder_file, 'rb'))
 
     learning_rates = {
-        0: 1,
-        30: 50,
-        80: 35,
-        150: 25,
-        250: 15,
-        350: 5,
-        450: 3,
-        500: 1,
-        600: .5,
-        700: .2,
-        800: .1,
-        900: .05,
-        1000: .01,
-        1100: .005,
-        1200: .0005
+        0: 1
     }
 
     loss_fn = nn.MSELoss()
@@ -90,6 +76,8 @@ if __name__ == '__main__':
     val_size = len(dataset) - train_size
     train, val = random_split(dataset, [train_size, val_size])
 
+    epoch_val_accuracies = []
+
     for epoch in range(num_epochs):
 
         # Switch lr according to curve
@@ -101,6 +89,8 @@ if __name__ == '__main__':
 
         train_losses = []
         accuracies = []
+        val_accuraces = []
+
 
         print(f"Epoch #{epoch+1}")
 
@@ -109,7 +99,6 @@ if __name__ == '__main__':
         for batch, (X, y) in enumerate(train_loader):
             X = X.to(device)
             y = y.to(device).float()
-
             
             # Select images that are memories
             memory1 = X[:, 0, :, :, :]
@@ -142,9 +131,49 @@ if __name__ == '__main__':
             batch_acc = sum(correctness_tensor)/len(correctness_tensor)
             accuracies.append(batch_acc.item())
 
+        # Validate
+        recognizer.eval()
+        for batch, (X, y) in enumerate(val_loader):
+            X = X.to(device)
+            y = y.to(device).float()
+            
+            # Select images that are memories
+            memory1 = X[:, 0, :, :, :]
+            memory2 = X[:, 1, :, :, :]
+
+            # Flatten memories
+            memory1 = torch.flatten(memory1, start_dim=1, end_dim=3)
+            memory2 = torch.flatten(memory2, start_dim=1, end_dim=3)
+
+            # Run memories through auto encoder
+            memory1 = mem_encoder.encode(memory1)
+            memory2 = mem_encoder.encode(memory2)
+
+            # Flatten input
+            sensory_input = X[:, 2, :, :]
+            flattened = torch.flatten(sensory_input, start_dim=1, end_dim=3)
+            # Concatenate memories and input
+            total_input = torch.cat((memory1, memory2, flattened), 1).float()
+
+            pred = recognizer(total_input)
+
+            correctness_tensor = pred.argmax(dim=-1) == y.argmax(dim=-1)
+            batch_acc = sum(correctness_tensor)/len(correctness_tensor)
+            val_accuraces.append(batch_acc.item())
+
         current_loss = statistics.mean(train_losses)
         total_acc = statistics.mean(accuracies)
+        total_val_acc = statistics.mean(val_accuraces)
         print(f"Train loss: {current_loss}")
         print(f"Train accuracy: {total_acc}")
+        print(f"Val   accuracy: {total_val_acc}")
+        epoch_val_accuracies.append(total_val_acc)
 
+    recognizer_train_info = {}
+    recognizer_train_info['val_accuracies'] = epoch_val_accuracies
+    recognizer_train_info['lrs'] = learning_rates
+    recognizer_train_info['num_epochs'] = num_epochs
+
+    pickle.dump(recognizer_train_info, open("recognizer_train_info.pkl", 'wb'))
     pickle.dump(recognizer, open("functionalnn.pkl", 'wb'))
+

@@ -184,20 +184,20 @@ def make_image(k=4):
         my_shape = shapes[i]()
         shape_img = my_shape.get_image()
         blank = torch.where(shape_img>.04, shape_img, blank)
-    
+
     return blank
 
 def img_perturb(img):
 
     # transform = T.Compose([T.GaussianBlur(kernel_size=3),
     #                        T.RandomRotation(degrees=15)])
-    transform = T.Compose([T.RandomRotation(degrees=15)])
+    transform = T.Compose([T.RandomRotation(degrees=90)])
     img = transform(img)
 
     return img
 
 
-def write_examples(N=10_000, directory='generated', base_filename='examples_', speak_every=500):
+def write_examples(N=10_000, directory='generated', base_filename='examples_', speak_every=500, to_show=3):
 
     """
     # Number of examples to write out per file
@@ -235,8 +235,15 @@ def write_examples(N=10_000, directory='generated', base_filename='examples_', s
         img1 = img_perturb(img1)
         img2 = img_perturb(img2)
 
-        # plt.imshow(img1.cpu().permute(1, 2, 0))
-        # plt.show()
+
+        if to_show > 0:
+            plt.imshow(img1.cpu().permute(1, 2, 0))
+            plt.show()
+            plt.imshow(img2.cpu().permute(1, 2, 0))
+            plt.show()
+            plt.imshow(img3.cpu().permute(1, 2, 0))
+            plt.show()
+            to_show -= 1
 
         obj = {'img1': img1, 'img2': img2, 'img3': img3, 'y': torch.tensor([int(use_first), int(not use_first)])}
 
